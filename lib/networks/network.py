@@ -115,16 +115,16 @@ class Network(object):
     def _reshape(self, input, shape, name=None):
         return tf.reshape(input, shape=shape, name=name)
 
-    def _pool1d(self, input, k_s, s, name, p_t='MAX', padding='SAME'):
+    def _pool1d(self, input, k_s, s, name=None, p_t='MAX', padding='SAME'):
         return tf.nn.pool(input, window_shape=[k_s], strides=[s], pooling_type=p_t, name=name, padding=padding)
 
-    def _global_average_pool1d(self, input, keepdims, name):
+    def _global_average_pool1d(self, input, keepdims, name=None):
         return tf.reduce_mean(input, axis=[1], keepdims=keepdims, name=name)
 
-    def _softmax(self, input, name):
+    def _softmax(self, input, name=None):
         return tf.nn.softmax(input, name=name)
 
-    def _fc(self, input, num_out, name, biased=True, activation='relu', trainable=True, reuse=False):
+    def _fc(self, input, num_out, name=None, biased=True, activation='relu', trainable=True, reuse=False):
         act_flag, act_func = self._get_activation(activation=activation)
 
         with tf.variable_scope(name, reuse=reuse):
@@ -157,7 +157,7 @@ class Network(object):
                     return act_func(xw)
                 return xw
 
-    def _conv1d(self, input, k_s, c_o, s, name, biased=True, activation='relu', padding='SAME',
+    def _conv1d(self, input, k_s, c_o, s, name=None, biased=True, activation='relu', padding='SAME',
                 trainable=True, reuse=False):
         act_flag, act_func = self._get_activation(activation=activation)
 
@@ -183,7 +183,7 @@ class Network(object):
                     return act_func(conv)
                 return conv
 
-    def _deconv1d(self, input, k_s, c_o, o_s, s, name, biased=True, activation='relu', padding='SAME', trainable=True, reuse=False):
+    def _deconv1d(self, input, k_s, c_o, o_s, s, name=None, biased=True, activation='relu', padding='SAME', trainable=True, reuse=False):
         act_flag, act_func = self._get_activation(activation=activation)
         c_i = input.get_shape()[-1]
         deconvolve = lambda i, k: tf.contrib.nn.conv1d_transpose(i, k, output_shape=o_s, stride=s, padding=padding)
@@ -208,55 +208,63 @@ class Network(object):
                     return act_func(deconv)
                 return deconv
 
+    def _multi_head_attention(self, q, k, v, nb_head, size_per_head, q_len=None, v_len=None):
+        def dense(input, putput_size, name, biased=True, seq_len=None, reuse=False):
+            with tf.variable_scope(name, reuse=reuse):
+                input_size = int(input.shape[-1])
+            return
+
+        pass
+
     @layer
-    def relu(self, input, name):
+    def relu(self, input, name=None):
         return tf.nn.relu(input, name=name)
 
     @layer
-    def elu(self, input, name):
+    def elu(self, input, name=None):
         return tf.nn.elu(input, name=name)
 
     @layer
-    def concat(self, inputs, axis, name):
+    def concat(self, inputs, axis, name=None):
         return tf.concat(axis=axis, values=inputs, name=name)
 
     @layer
-    def maxpool1d(self, input, name, padding):
+    def maxpool1d(self, input, padding, name=None):
         return tf.nn.pool(input, window_shape=[2], strides=[2], pooling_type='MAX', name=name, padding=padding)
 
     @layer
-    def deconv1d(self, input, k_s, c_o, o_s, s, name, biased=True, activation='relu', padding='SAME',
+    def deconv1d(self, input, k_s, c_o, o_s, s, name=None, biased=True, activation='relu', padding='SAME',
                  trainable=True, reuse=False):
         return self._deconv1d(input, k_s, c_o, o_s, s, name, biased, activation, padding, trainable, reuse)
 
     @layer
-    def conv1d(self, input, k_s, c_o, s, name, biased=True, activation='relu', padding='SAME',
+    def conv1d(self, input, k_s, c_o, s, name=None, biased=True, activation='relu', padding='SAME',
                trainable=True, reuse=False):
         return self._conv1d(input, k_s, c_o, s, name, biased, activation, padding, trainable, reuse)
 
     @layer
-    def fc(self, input, num_out, name, biased=True, activation='relu',
+    def fc(self, input, num_out, name=None, biased=True, activation='relu',
            trainable=True, reuse=False):
         return self._fc(input, num_out, name, biased, activation, trainable, reuse)
 
     @layer
-    def softmax(self, input, name):
+    def softmax(self, input, name=None):
         return tf.nn.softmax(input, name=name)
 
     @layer
-    def tanh(self, input, name):
+    def tanh(self, input, name=None):
         return tf.nn.tanh(input, name=name)
 
     @layer
-    def dropout(self, input, keep_prob, name):
+    def dropout(self, input, keep_prob, name=None):
         return tf.nn.dropout(input, keep_prob, name=name)
 
     @layer
-    def add(self, input, name):
+    def add(self, input, name=None):
         assert len(input) == 2
         return tf.add(input[0], input[1], name=name)
 
     @layer
-    def multiply(self, input, name):
+    def multiply(self, input, name=None):
         assert len(input) == 2
         return tf.multiply(input[0], input[1], name=name)
