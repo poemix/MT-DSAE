@@ -106,30 +106,20 @@ class Network(object):
     def make_var(self, name, shape, initializer=None, trainable=True, regularizer=None):
         return tf.get_variable(name, shape, initializer=initializer, trainable=trainable, regularizer=regularizer)
 
+    def _get_shape(self, tensor):
+        return tf.shape(tensor)
+
     def _swish(self, input, name=None):
         return tf.multiply(input, tf.nn.sigmoid(input), name=name)
 
-    @layer
-    def relu(self, input, name):
-        return tf.nn.relu(input, name=name)
-
-    @layer
-    def elu(self, input, name):
-        return tf.nn.elu(input, name=name)
-
-    @layer
-    def concat(self, inputs, axis, name):
-        return tf.concat(axis=axis, values=inputs, name=name)
+    def _reshape(self, input, shape, name=None):
+        return tf.reshape(input, shape=shape, name=name)
 
     def _pool1d(self, input, k_s, s, name, p_t='MAX', padding='SAME'):
         return tf.nn.pool(input, window_shape=[k_s], strides=[s], pooling_type=p_t, name=name, padding=padding)
 
     def _global_average_pool1d(self, input, keepdims, name):
         return tf.reduce_mean(input, axis=[1], keepdims=keepdims, name=name)
-
-    @layer
-    def maxpool1d(self, input, name, padding):
-        return tf.nn.pool(input, window_shape=[2], strides=[2], pooling_type='MAX', name=name, padding=padding)
 
     def _fc(self, input, num_out, name, biased=True, activation='relu', trainable=True, reuse=False):
         act_flag, act_func = self._get_activation(activation=activation)
@@ -163,11 +153,6 @@ class Network(object):
                 if act_flag:
                     return act_func(xw)
                 return xw
-
-    @layer
-    def fc(self, input, num_out, name, biased=True, activation='relu',
-           trainable=True, reuse=False):
-        return self._fc(input, num_out, name, biased, activation, trainable, reuse)
 
     def _conv1d(self, input, k_s, c_o, s, name, biased=True, activation='relu', padding='SAME',
                 trainable=True, reuse=False):
@@ -221,6 +206,22 @@ class Network(object):
                 return deconv
 
     @layer
+    def relu(self, input, name):
+        return tf.nn.relu(input, name=name)
+
+    @layer
+    def elu(self, input, name):
+        return tf.nn.elu(input, name=name)
+
+    @layer
+    def concat(self, inputs, axis, name):
+        return tf.concat(axis=axis, values=inputs, name=name)
+
+    @layer
+    def maxpool1d(self, input, name, padding):
+        return tf.nn.pool(input, window_shape=[2], strides=[2], pooling_type='MAX', name=name, padding=padding)
+
+    @layer
     def deconv1d(self, input, k_s, c_o, o_s, s, name, biased=True, activation='relu', padding='SAME',
                  trainable=True, reuse=False):
         return self._deconv1d(input, k_s, c_o, o_s, s, name, biased, activation, padding, trainable, reuse)
@@ -229,6 +230,11 @@ class Network(object):
     def conv1d(self, input, k_s, c_o, s, name, biased=True, activation='relu', padding='SAME',
                trainable=True, reuse=False):
         return self._conv1d(input, k_s, c_o, s, name, biased, activation, padding, trainable, reuse)
+
+    @layer
+    def fc(self, input, num_out, name, biased=True, activation='relu',
+           trainable=True, reuse=False):
+        return self._fc(input, num_out, name, biased, activation, trainable, reuse)
 
     @layer
     def softmax(self, input, name):
@@ -254,6 +260,3 @@ class Network(object):
     def multiply(self, input, name):
         assert len(input) == 2
         return tf.multiply(input[0], input[1], name=name)
-
-    def _reshape(self, input, shape, name=None):
-        return tf.reshape(input, shape=shape, name=name)

@@ -36,16 +36,16 @@ class CNNStackAutoEncoder(Network):
 
     def setup(self):
         data = self._reshape(self.data, [-1, self.n_feature, 1])
-        conv1 = self._conv1d(data, k_s=3, c_o=16, s=1, name='conv1', activation='elu')
-        pool1 = self._pool1d(conv1, k_s=2, s=2, name='pool1', padding='SAME')
-        conv2 = self._conv1d(pool1, k_s=3, c_o=32, s=1, name='conv2', activation='elu')
-        pool2 = self._pool1d(conv2, k_s=2, s=2, name='pool2', padding='SAME')
-        conv3 = self._conv1d(pool2, k_s=3, c_o=64, s=1, name='conv3', activation='elu')
-        pool3 = self._pool1d(conv3, k_s=2, s=2, name='pool3', padding='SAME')
-        conv4 = self._conv1d(pool3, k_s=3, c_o=64, s=1, name='conv4', activation='elu')
+        conv1 = self._conv1d(data, k_s=3, c_o=16, s=1, activation='elu', name='conv1')
+        pool1 = self._pool1d(conv1, k_s=2, s=2, padding='SAME', name='pool1')
+        conv2 = self._conv1d(pool1, k_s=3, c_o=32, s=1, activation='elu', name='conv2')
+        pool2 = self._pool1d(conv2, k_s=2, s=2, padding='SAME', name='pool2')
+        conv3 = self._conv1d(pool2, k_s=3, c_o=64, s=1, activation='elu', name='conv3')
+        pool3 = self._pool1d(conv3, k_s=2, s=2, padding='SAME', name='pool3')
+        conv4 = self._conv1d(pool3, k_s=3, c_o=64, s=1, activation='elu', name='conv4')
         print(conv4)
 
-        shape = tf.shape(self.data)
+        shape = self._get_shape(self.data)
         deconv3 = self._deconv1d(conv4, k_s=3, c_o=32, o_s=tf.stack([shape[0], math.ceil(self.n_feature/4), 32]), s=2,
                                  activation='elu', name='deconv3')
         print(deconv3)
@@ -83,7 +83,6 @@ class CNNStackAutoEncoder(Network):
         self.layers['cls_score'] = score
         self.layers['cls_prob'] = prob
 
+
 if __name__ == '__main__':
     net = CNNStackAutoEncoder(5, 1364)
-
-
