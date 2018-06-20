@@ -60,9 +60,9 @@ class CNNStackAutoEncoder(Network):
         print(denc)
 
         gap = self._global_average_pool1d(conv4, keepdims=False, name='gap')
-        fc1 = self._fc(gap, self.n_feature//4, activation='elu', name='fc1')
-        fc2 = self._fc(fc1, self.n_feature//4, activation='elu', name='fc2')
-        score = self._fc(fc2, self.n_class, activation=False, name='cls_score')
+        # fc1 = self._fc(gap, self.n_feature//4, activation='elu', name='fc1')
+        # fc2 = self._fc(fc1, self.n_feature//4, activation='elu', name='fc2')
+        score = self._fc(gap, self.n_class, activation=False, name='cls_score')
         prob = self._softmax(score, name='cls_prob')
 
         # add to layers

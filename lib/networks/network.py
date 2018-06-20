@@ -96,7 +96,7 @@ class Network(object):
             act_flag = False
             act_func = None
         else:
-            raise ValueError('nonsupport activation.')
+            raise ValueError('nonsupport activation function.')
         return act_flag, act_func
 
     def get_unique_name(self, prefix):
@@ -120,6 +120,9 @@ class Network(object):
 
     def _global_average_pool1d(self, input, keepdims, name):
         return tf.reduce_mean(input, axis=[1], keepdims=keepdims, name=name)
+
+    def _softmax(self, input, name):
+        return tf.nn.softmax(input, name=name)
 
     def _fc(self, input, num_out, name, biased=True, activation='relu', trainable=True, reuse=False):
         act_flag, act_func = self._get_activation(activation=activation)
@@ -238,9 +241,6 @@ class Network(object):
 
     @layer
     def softmax(self, input, name):
-        return tf.nn.softmax(input, name=name)
-
-    def _softmax(self, input, name):
         return tf.nn.softmax(input, name=name)
 
     @layer
