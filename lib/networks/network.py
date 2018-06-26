@@ -106,8 +106,8 @@ class Network(object):
     def make_var(self, name, shape, initializer=None, trainable=True, regularizer=None):
         return tf.get_variable(name, shape, initializer=initializer, trainable=trainable, regularizer=regularizer)
 
-    def _get_shape(self, tensor):
-        return tf.shape(tensor)
+    def _get_shape(self, input):
+        return tf.shape(input)
 
     def _swish(self, input, name=None):
         return tf.multiply(input, tf.nn.sigmoid(input), name=name)
@@ -124,13 +124,10 @@ class Network(object):
     def _softmax(self, input, name=None):
         return tf.nn.softmax(input, name=name)
 
-    def _fc(self, input, num_out, name=None, biased=True, activation='relu', trainable=True, reuse=False):
+    def _fc(self, input, size_out, name=None, biased=True, activation='relu', trainable=True, reuse=False):
         act_flag, act_func = self._get_activation(activation=activation)
 
         with tf.variable_scope(name, reuse=reuse):
-            if isinstance(input, tuple):
-                input = input[0]  # only use the first input
-
             input_shape = input.get_shape()
             if input_shape.ndims == 4:
                 dim = 1
@@ -139,16 +136,19 @@ class Network(object):
                 feed_in = tf.reshape(tf.transpose(input, [0, 3, 1, 2]), [-1, dim])
             elif input_shape.ndims == 2:
                 feed_in, dim = (input, int(input_shape[-1]))
+            elif input_shape.ndims == 3:
+                feed_in, dim = tf.reshape(input, [-1, input_shape[-1]]), int(input_shape[-1])
             else:
                 raise ValueError('nonsupport dim {}.'.format(input_shape.ndims))
             init_weight = tf.contrib.layers.xavier_initializer()
             init_bias = tf.constant_initializer(0.)
 
-            weight = self.make_var('weight', [dim, num_out], initializer=init_weight, trainable=trainable)
+            weight = self.make_var('weight', [dim, size_out], initializer=init_weight, trainable=trainable)
 
             xw = tf.matmul(feed_in, weight)
+            xw = tf.reshape(xw, tf.concat([tf.shape(input)[:-1], [size_out]], 0))
             if biased:
-                bias = self.make_var('bias', [num_out], initializer=init_bias, trainable=trainable)
+                bias = self.make_var('bias', [size_out], initializer=init_bias, trainable=trainable)
                 if act_flag:
                     return act_func(tf.nn.bias_add(xw, bias))
                 return tf.nn.bias_add(xw, bias)
@@ -183,7 +183,8 @@ class Network(object):
                     return act_func(conv)
                 return conv
 
-    def _deconv1d(self, input, k_s, c_o, o_s, s, name=None, biased=True, activation='relu', padding='SAME', trainable=True, reuse=False):
+    def _deconv1d(self, input, k_s, c_o, o_s, s, name=None, biased=True, activation='relu', padding='SAME',
+                  trainable=True, reuse=False):
         act_flag, act_func = self._get_activation(activation=activation)
         c_i = input.get_shape()[-1]
         deconvolve = lambda i, k: tf.contrib.nn.conv1d_transpose(i, k, output_shape=o_s, stride=s, padding=padding)
@@ -208,13 +209,89 @@ class Network(object):
                     return act_func(deconv)
                 return deconv
 
-    def _multi_head_attention(self, q, k, v, nb_head, size_per_head, q_len=None, v_len=None):
-        def dense(input, putput_size, name, biased=True, seq_len=None, reuse=False):
-            with tf.variable_scope(name, reuse=reuse):
-                input_size = int(input.shape[-1])
-            return
+    def _dense(self, input, output_size, name, biased=True, seq_len=None, reuse=False, trainable=True):
+        with tf.variable_scope(name, reuse=reuse):
+            input_size = int(input.shape[-1])
+            init_weight = tf.random_uniform_initializer(minval=-0.05, maxval=0.05)
+            init_bias = tf.random_uniform_initializer(minval=-0.05, maxval=0.05)
 
-        pass
+            weight = self.make_var('weight', [input_size, output_size], initializer=init_weight,
+                                   trainable=trainable)
+            xw = tf.matmul(tf.reshape(input, (-1, input_size)), weight)
+            xw = tf.reshape(xw, tf.concat([tf.shape(input)[:-1], [output_size]], 0))
+            if biased:
+                bias = self.make_var('bias', [output_size], initializer=init_bias, trainable=trainable)
+                output = tf.nn.bias_add(xw, bias)
+            else:
+                output = xw
+
+            if seq_len is not None:
+                output = self._mask(output, seq_len, 'mul')
+        return output
+
+    def _mask(self, input, seq_len, mode='mul'):
+        """
+        :param input: 是一个二阶以上的张量，代表输入序列，比如形如(batch_size, seq_len, input_size)的张量；
+        :param seq_len: 是一个形如(batch_size,)的张量，代表每个序列的实际长度，多出部分都被忽略；
+        :param mode: 
+        分为mul和add，
+        mul是指把多出部分全部置零，一般用于全连接层之前；
+        add是指把多出部分全部减去一个大的常数，一般用于softmax之前。
+        :return: 
+        """
+        if seq_len is None:
+            print(5555555)
+            return input
+        else:
+            m = tf.cast(tf.sequence_mask(seq_len), tf.float32)
+            for _ in range(len(input.shape) - 2):
+                m = tf.expand_dims(m, 2)
+            if mode == 'mul':
+                return input * m
+            if mode == 'add':
+                return input - (1 - m) * 1e12
+
+    def _multi_head_attention(self, q, k, v, nb_head, size_head, name, q_len=None, v_len=None, reuse=False):
+        """
+        :param q: [batch_size, 1, n_features]
+        :param k: 
+        :param v: 
+        :param nb_head: 8
+        :param size_head: 64
+        :param name: 
+        :param q_len: 
+        :param v_len: 
+        :param reuse: 
+        :return: 
+        """
+        with tf.variable_scope(name, reuse=reuse):
+            # 对q, k, v分别做线性映射
+            q = self._dense(q, nb_head * size_head, name='a', biased=False, reuse=reuse)  # [batch_size, len, nb_head*size_hed]
+            q = tf.reshape(q, (-1, tf.shape(q)[1], nb_head, size_head))  # [batch_size, len, nb_head, size_head]
+            q = tf.transpose(q, [0, 2, 1, 3])  # [batch_size, nb_head, len, size_head]
+
+            k = self._dense(k, nb_head * size_head, name='b', biased=False, reuse=reuse)  # [batch_size, len, nb_head*size_hed]
+            k = tf.reshape(k, (-1, tf.shape(k)[1], nb_head, size_head))  # [batch_size, len, nb_head, size_head]
+            k = tf.transpose(k, [0, 2, 1, 3])  # [batch_size, nb_head, len, size_head]
+
+            v = self._dense(v, nb_head * size_head, name='c', biased=False, reuse=reuse)  # [batch_size, len, nb_head*size_hed]
+            v = tf.reshape(v, (-1, tf.shape(v)[1], nb_head, size_head))  # [batch_size, len, nb_head, size_head]
+            v = tf.transpose(v, [0, 2, 1, 3])  # [batch_size, nb_head, len, size_head]
+
+            # 计算内积，mask, softmax
+            a = tf.matmul(q, k, transpose_b=True) / tf.sqrt(float(size_head))  # [batch_size, nb_head, len, len]
+            a = tf.transpose(a, [0, 3, 2, 1])  # [batch_size, len, len, nb_head]
+            a = self._mask(a, v_len, mode='add')
+            a = tf.transpose(a, [0, 3, 2, 1])  # [batch_size, nb_head, len, len]
+            a = tf.nn.softmax(a)  # [batch_size, nb_head, len, len]
+
+            # 输出并mask
+            o = tf.matmul(a, v)  # [batch_size, nb_head, len, size_head]
+            o = tf.transpose(o, [0, 2, 1, 3])  # [batch_size, len, nb_head, size_head]
+            o = tf.reshape(o, (-1, tf.shape(o)[1], nb_head * size_head))  # [batch_size, len, nb_head * size_head]
+            o = self._mask(o, q_len, 'mul')
+
+            return o
 
     @layer
     def relu(self, input, name=None):
@@ -268,3 +345,4 @@ class Network(object):
     def multiply(self, input, name=None):
         assert len(input) == 2
         return tf.multiply(input[0], input[1], name=name)
+
