@@ -124,38 +124,36 @@ class Network(object):
     def _softmax(self, input, name=None):
         return tf.nn.softmax(input, name=name)
 
-    def _fc(self, input, size_out, name=None, biased=True, activation='relu', trainable=True, reuse=False):
+    def _fc(self, input, size_out, name=None, biased=True, activation='relu',
+            weight_initializer=tf.contrib.layers.xavier_initializer(),
+            bias_initializer=tf.zeros_initializer(),
+            trainable=True, reuse=None):
         act_flag, act_func = self._get_activation(activation=activation)
 
         with tf.variable_scope(name, reuse=reuse):
             input_shape = input.get_shape()
-            if input_shape.ndims == 4:
-                dim = 1
-                for d in input_shape[1:].as_list():
-                    dim *= d
-                feed_in = tf.reshape(tf.transpose(input, [0, 3, 1, 2]), [-1, dim])
-            elif input_shape.ndims == 2:
-                feed_in, dim = (input, int(input_shape[-1]))
-            elif input_shape.ndims == 3:
-                feed_in, dim = tf.reshape(input, [-1, input_shape[-1]]), int(input_shape[-1])
+            if 5 > input_shape.ndims > 1:
+                # [batch_size, height, width, channel]
+                # [batch_size, seq_len, word_size]
+                # [batch_size, n_features]
+                dim = int(input_shape[-1])
+                feed_in = tf.reshape(input, [-1, dim])
             else:
                 raise ValueError('nonsupport dim {}.'.format(input_shape.ndims))
-            init_weight = tf.contrib.layers.xavier_initializer()
-            init_bias = tf.constant_initializer(0.)
+            init_weight = weight_initializer
+            init_bias = bias_initializer
 
             weight = self.make_var('weight', [dim, size_out], initializer=init_weight, trainable=trainable)
 
-            xw = tf.matmul(feed_in, weight)
-            xw = tf.reshape(xw, tf.concat([tf.shape(input)[:-1], [size_out]], 0))
+            output = tf.matmul(feed_in, weight)
+            output = tf.reshape(output, tf.concat([tf.shape(input)[:-1], [size_out]], 0))
             if biased:
                 bias = self.make_var('bias', [size_out], initializer=init_bias, trainable=trainable)
-                if act_flag:
-                    return act_func(tf.nn.bias_add(xw, bias))
-                return tf.nn.bias_add(xw, bias)
-            else:
-                if act_flag:
-                    return act_func(xw)
-                return xw
+                output = tf.nn.bias_add(output, bias)
+            if act_flag:
+                output = act_func(output)
+
+            return output
 
     def _conv1d(self, input, k_s, c_o, s, name=None, biased=True, activation='relu', padding='SAME',
                 trainable=True, reuse=False):
@@ -215,8 +213,7 @@ class Network(object):
             init_weight = tf.random_uniform_initializer(minval=-0.05, maxval=0.05)
             init_bias = tf.random_uniform_initializer(minval=-0.05, maxval=0.05)
 
-            weight = self.make_var('weight', [input_size, output_size], initializer=init_weight,
-                                   trainable=trainable)
+            weight = self.make_var('weight', [input_size, output_size], initializer=init_weight, trainable=trainable)
             xw = tf.matmul(tf.reshape(input, (-1, input_size)), weight)
             xw = tf.reshape(xw, tf.concat([tf.shape(input)[:-1], [output_size]], 0))
             if biased:
@@ -240,7 +237,6 @@ class Network(object):
         :return: 
         """
         if seq_len is None:
-            print(5555555)
             return input
         else:
             m = tf.cast(tf.sequence_mask(seq_len), tf.float32)
@@ -250,6 +246,33 @@ class Network(object):
                 return input * m
             if mode == 'add':
                 return input - (1 - m) * 1e12
+
+    def _layer_normalize(self, input, epsilon=1e-8, name="ln", trainable=True, reuse=None):
+        """Applies layer normalization.
+
+        Args:
+          input: A tensor with 2 or more dimensions, where the first dimension has
+            `batch_size`.
+          epsilon: A floating number. A very small number for preventing ZeroDivision Error.
+          name: Optional scope for `variable_scope`.
+          trainable: 
+          reuse: Boolean, whether to reuse the weights of a previous layer
+            by the same name.
+
+        Returns:
+          A tensor with the same shape and data dtype as `input`.
+        """
+        with tf.variable_scope(name, reuse=reuse):
+            input_shape = input.get_shape()
+            param_shape = input_shape[-1:]
+
+            mean, variance = tf.nn.moments(input, [-1], keep_dims=True)
+            beta = self.make_var('beta', param_shape, initializer=tf.zeros_initializer, trainable=trainable)
+            gamma = self.make_var('gamma', param_shape, initializer=tf.ones_initializer, trainable=trainable)
+            normalized = (input - mean) / ((variance + epsilon) ** 0.5)
+            output = gamma * normalized + beta
+
+        return output
 
     def _multi_head_attention(self, q, k, v, nb_head, size_head, name, q_len=None, v_len=None, reuse=False):
         """
@@ -266,15 +289,18 @@ class Network(object):
         """
         with tf.variable_scope(name, reuse=reuse):
             # 对q, k, v分别做线性映射
-            q = self._dense(q, nb_head * size_head, name='a', biased=False, reuse=reuse)  # [batch_size, len, nb_head*size_hed]
+            q = self._dense(q, nb_head * size_head, name='a', biased=False,
+                            reuse=reuse)  # [batch_size, len, nb_head*size_hed]
             q = tf.reshape(q, (-1, tf.shape(q)[1], nb_head, size_head))  # [batch_size, len, nb_head, size_head]
             q = tf.transpose(q, [0, 2, 1, 3])  # [batch_size, nb_head, len, size_head]
 
-            k = self._dense(k, nb_head * size_head, name='b', biased=False, reuse=reuse)  # [batch_size, len, nb_head*size_hed]
+            k = self._dense(k, nb_head * size_head, name='b', biased=False,
+                            reuse=reuse)  # [batch_size, len, nb_head*size_hed]
             k = tf.reshape(k, (-1, tf.shape(k)[1], nb_head, size_head))  # [batch_size, len, nb_head, size_head]
             k = tf.transpose(k, [0, 2, 1, 3])  # [batch_size, nb_head, len, size_head]
 
-            v = self._dense(v, nb_head * size_head, name='c', biased=False, reuse=reuse)  # [batch_size, len, nb_head*size_hed]
+            v = self._dense(v, nb_head * size_head, name='c', biased=False,
+                            reuse=reuse)  # [batch_size, len, nb_head*size_hed]
             v = tf.reshape(v, (-1, tf.shape(v)[1], nb_head, size_head))  # [batch_size, len, nb_head, size_head]
             v = tf.transpose(v, [0, 2, 1, 3])  # [batch_size, nb_head, len, size_head]
 
@@ -290,6 +316,45 @@ class Network(object):
             o = tf.transpose(o, [0, 2, 1, 3])  # [batch_size, len, nb_head, size_head]
             o = tf.reshape(o, (-1, tf.shape(o)[1], nb_head * size_head))  # [batch_size, len, nb_head * size_head]
             o = self._mask(o, q_len, 'mul')
+
+            return o
+
+    def _attention(self, q, k, v, nb_head, size_head, name, trainable=True, reuse=None):
+        """
+        :param q: [batch_size, 1, n_features]
+        :param k: 
+        :param v: 
+        :param nb_head: 8
+        :param size_head: 64
+        :param name: 
+        :param reuse: 
+        :return: 
+        """
+        with tf.variable_scope(name, reuse=reuse):
+            # 对q, k, v分别做线性映射
+            q = self._fc(q, nb_head * size_head, name='a', biased=True, activation='relu',
+                         trainable=trainable, reuse=reuse)  # [batch_size, len, nb_head*size_hed]
+            q = tf.reshape(q, (-1, tf.shape(q)[1], nb_head, size_head))  # [batch_size, len, nb_head, size_head]
+            q = tf.transpose(q, [0, 2, 1, 3])  # [batch_size, nb_head, len, size_head]
+
+            k = self._fc(k, nb_head * size_head, name='b', biased=True, activation='relu',
+                         trainable=trainable, reuse=reuse)  # [batch_size, len, nb_head*size_hed]
+            k = tf.reshape(k, (-1, tf.shape(k)[1], nb_head, size_head))  # [batch_size, len, nb_head, size_head]
+            k = tf.transpose(k, [0, 2, 1, 3])  # [batch_size, nb_head, len, size_head]
+
+            v = self._fc(v, nb_head * size_head, name='c', biased=True, activation='relu',
+                         trainable=trainable, reuse=reuse)  # [batch_size, len, nb_head*size_hed]
+            v = tf.reshape(v, (-1, tf.shape(v)[1], nb_head, size_head))  # [batch_size, len, nb_head, size_head]
+            v = tf.transpose(v, [0, 2, 1, 3])  # [batch_size, nb_head, len, size_head]
+
+            # 计算内积，mask, softmax
+            a = tf.matmul(q, k, transpose_b=True) / tf.sqrt(float(size_head))  # [batch_size, nb_head, len, len]
+            a = tf.nn.softmax(a)  # [batch_size, nb_head, len, len]
+
+            # 输出
+            o = tf.matmul(a, v)  # [batch_size, nb_head, len, size_head]
+            o = tf.transpose(o, [0, 2, 1, 3])  # [batch_size, len, nb_head, size_head]
+            o = tf.reshape(o, (-1, tf.shape(o)[1], nb_head * size_head))  # [batch_size, len, nb_head * size_head]
 
             return o
 
@@ -345,4 +410,3 @@ class Network(object):
     def multiply(self, input, name=None):
         assert len(input) == 2
         return tf.multiply(input[0], input[1], name=name)
-

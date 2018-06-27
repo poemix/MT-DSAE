@@ -12,7 +12,7 @@ import tensorflow as tf
 from lib.networks.network import Network
 
 
-class AttentionStackAutoEncoder(Network):
+class AttentionSAE(Network):
     def __init__(self, n_class, n_feature, trainable=True, reuse=False):
         self.data = tf.placeholder(tf.float32, shape=[None, n_feature])
         self.label = tf.placeholder(tf.float32, shape=[None, n_class])
@@ -21,7 +21,7 @@ class AttentionStackAutoEncoder(Network):
         self.n_class = n_class
         self.n_feature = n_feature
 
-        super(AttentionStackAutoEncoder, self).__init__(
+        super(AttentionSAE, self).__init__(
             inputs={
                 'data': self.data,
                 'label': self.label,
@@ -31,10 +31,15 @@ class AttentionStackAutoEncoder(Network):
             reuse=reuse
         )
 
-    def _block(self, input, name, nb_head=8, size_head=64, reuse=False):
+    def _block(self, input, name, nb_head=8, size_head=64, trainable=True, reuse=False):
         with tf.variable_scope(name, reuse=reuse):
-            attention = self._multi_head_attention(q=input, k=input, v=input, nb_head=nb_head, size_head=size_head, name='attention')
-            # fc = self._fc(attention, nb_head*size_head)
+            output = self._attention(q=input, k=input, v=input, nb_head=nb_head, size_head=size_head,
+                                     name='attention', trainable=trainable)
+            output += input  # skip connection
+
+            output = self._layer_normalize(output)  # layer normalize
+
+            return output
 
     def load(self, data_path, sess, saver):
         pass
@@ -46,6 +51,7 @@ class AttentionStackAutoEncoder(Network):
 
 if __name__ == '__main__':
     import numpy as np
+
     net = AttentionStackAutoEncoder(4, 100)
     a = np.ones((4, 1, 100), dtype=np.float32)
     x = tf.placeholder(tf.float32, [4, 1, 100])
