@@ -10,9 +10,9 @@
 import numpy as np
 import tensorflow as tf
 
-from lib.data_layer import data_info
+from lib.datasets import data_info
 from lib.networks.factory import get_network
-from lib.data_layer.tianchi_data import TianchiDataLayer
+from lib.datasets.tianchi_data import TianchiDataLayer
 
 
 learning_rate = 0.001

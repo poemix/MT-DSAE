@@ -10,7 +10,7 @@
 import numpy as np
 import pandas as pd
 from sklearn.model_selection import StratifiedKFold
-from lib.data_layer import data_info
+from lib.datasets import data_info
 
 
 seed = 2018
