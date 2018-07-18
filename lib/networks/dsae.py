@@ -3,7 +3,7 @@
 # @Env      : windows python3.5
 # @Author   : xushiqi
 # @Email    : xushiqitc@163.com
-# @File     : sae.py
+# @File     : dsae.py
 # @Software : PyCharm
 
 
@@ -12,7 +12,7 @@ from lib.networks.network import Network
 from experiment.hyperparams import HyperParams as hp
 
 
-class StackAutoEncoder(Network):
+class DenosingStackAutoEncoder(Network):
     def __init__(self, data, label):
         self.data = data
         self.label = label
@@ -22,7 +22,9 @@ class StackAutoEncoder(Network):
         self.n_class = label.shape[-1]
         self.n_feature = data.shape[-1]
 
-        super(StackAutoEncoder, self).__init__(
+        self.mask = tf.placeholder(tf.float32, [None, self.n_feature])
+
+        super(DenosingStackAutoEncoder, self).__init__(
             inputs={
                 'data': self.data,
                 'label': self.label,
@@ -36,12 +38,10 @@ class StackAutoEncoder(Network):
         pass
 
     def setup(self):
-        # hp.hidden_units512 = self.n_feature // 2
-        # hp.hidden_units256 = self.n_feature // 4
-        # hp.hidden_units128 = self.n_feature // 8
-        # print(hp.hidden_units128)
         # stack auto encoder
-        enc1 = self.fc(self.data, hp.hidden_units512, name='enc1', biased=True, activation=hp.activation)
+        data_denosing = tf.multiply(self.data, self.mask)
+        print(data_denosing)
+        enc1 = self.fc(data_denosing, hp.hidden_units512, name='enc1', biased=True, activation=hp.activation)
         enc2 = self.fc(enc1, hp.hidden_units256, name='enc2', biased=True, activation=hp.activation)
         encoded = self.fc(enc2, hp.hidden_units128, name='encoded', biased=True, activation=hp.activation)
         dec2 = self.fc(encoded, hp.hidden_units256, name='dec2', biased=True, activation=hp.activation)
@@ -49,10 +49,10 @@ class StackAutoEncoder(Network):
         decoded = self.fc(dec1, self.n_feature, name='decoded', biased=True, activation=False)
 
         # cls
-        fc1 = self.fc(encoded, hp.hidden_units256, name='fc1', biased=True, activation=hp.activation)
-        fc2 = self.fc(fc1, hp.hidden_units256, name='fc2', biased=True, activation=hp.activation)
-        cls_score = self.fc(fc2, self.n_class, name='cls_score', biased=True, activation=False)
-        cls_prob = tf.nn.softmax(cls_score, name='cls_prob')
+        fc1 = self.fc(encoded, hp.hidden_units256, name='fc1', biased=True, activation='elu')
+        fc2 = self.fc(fc1, hp.hidden_units256, name='fc2', biased=True, activation='elu')
+        cls_score = self.fc(fc2, self.n_class, name='cls_score', biased=True, activation='elu')
+        cls_prob = tf.nn.softmax(cls_score, name='cls_score')
 
         self.layers['cls_score'] = cls_score
         self.layers['cls_prob'] = cls_prob
@@ -60,6 +60,7 @@ class StackAutoEncoder(Network):
 
 
 if __name__ == '__main__':
+    import numpy as np
     from lib.datasets.data_info import DataInfo as di
     from lib.datasets.tdata import TData
 
@@ -72,15 +73,15 @@ if __name__ == '__main__':
     class_map = di.classes[mall_name]
 
     tdata = TData(file_path=file_path, n_feature=n_feature, n_class=n_class, class_map=class_map, kfold=5)
-    tx, ty, vx, vy, tnum_batch, vnum_batch = tdata.get_batch_data()
+    tx, ty, vx, vy = tdata.get_batch_data()
 
-    net = StackAutoEncoder(tx, ty)
+    net = DenosingStackAutoEncoder(tx, ty)
 
     with tf.Session() as sess:
         tf.global_variables_initializer().run()
         coord = tf.train.Coordinator()
         threads = tf.train.start_queue_runners(sess=sess, coord=coord)
         for i in range(1):
-            print(i, sess.run(net.get_output('cls_prob')))
+            print(i, sess.run(net.get_output('cls_prob'), feed_dict={net.mask: np.ones((hp.batch_size, n_feature))}))
         coord.request_stop()
         coord.join(threads)
