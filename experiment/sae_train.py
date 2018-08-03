@@ -23,7 +23,7 @@ def train_net(mall_name, net_name='sae', kidx=0):
     :param kidx: k'th k-flod cross validation
     :return: 
     """
-    tf.set_random_seed(hp.seed)
+    # tf.set_random_seed(hp.seed)
     n_class = di.num_classes[mall_name]
     n_feature = di.num_features[mall_name]
     class_map = di.classes[mall_name]
@@ -31,10 +31,10 @@ def train_net(mall_name, net_name='sae', kidx=0):
     print(n_class, n_feature)
 
     # data
-    tdata = TData(file_path=file_path, n_feature=n_feature, n_class=n_class, class_map=class_map, kidx=kidx,
+    tdata = TData(file_path=file_path, n_feature=n_feature, n_class=n_class, class_map=class_map,
                   kfold=hp.kfold)
     with tf.device("/cpu:0"):
-        tx, ty, vx, vy, tnum_batch, vnum_batch = tdata.get_batch_data()
+        tx, ty, n_tsample, vx, vy, n_esample = tdata.get_batch_data(kidx=0)
 
     x = tf.placeholder(tf.float32, [None, n_feature])
     y = tf.placeholder(tf.float32, [None, n_class])
@@ -51,14 +51,15 @@ def train_net(mall_name, net_name='sae', kidx=0):
     cls_loss = tf.reduce_mean(
         tf.nn.softmax_cross_entropy_with_logits_v2(logits=y_pred, labels=net.label)
     )
-    total_loss = sae_loss + cls_loss
+    loss = tf.add(sae_loss, cls_loss)
 
     # train step
     global_step = tf.Variable(0, trainable=False)
-    train_op = tf.train.AdamOptimizer(hp.lr).minimize(total_loss, global_step=global_step)
+    train_op = tf.train.AdamOptimizer(hp.learning_rate).minimize(loss, global_step=global_step)
 
     # acc
     correct_pred = tf.equal(tf.argmax(y_pred, 1), tf.argmax(net.label, 1))
+    num_correct_pred = tf.reduce_sum(tf.cast(correct_pred, tf.float32))
     accuracy = tf.reduce_mean(tf.cast(correct_pred, tf.float32))
 
     # sess run
@@ -69,10 +70,12 @@ def train_net(mall_name, net_name='sae', kidx=0):
         try:
             for epoch in range(hp.num_epochs):
                 epoch_loss = np.empty(0)
+                num_tbatch = n_tsample // hp.tbatch_size
                 tdata, tlabel = sess.run([tx, ty])
-                for step in range((epoch * tnum_batch), ((epoch + 1) * tnum_batch)):
+                # print(tdata)
+                for step in range((epoch * num_tbatch), ((epoch + 1) * num_tbatch)):
                     _, tacc, tloss = sess.run(
-                        [train_op, accuracy, total_loss],
+                        [train_op, accuracy, loss],
                         feed_dict={
                             net.data: tdata,
                             net.label: tlabel,
@@ -82,18 +85,25 @@ def train_net(mall_name, net_name='sae', kidx=0):
                     )
                     epoch_loss = np.append(epoch_loss, tloss)
 
-                # 每个epoch验证集的acc
-                vdata, vlabel = sess.run([vx, vy])
-                val_acc = sess.run(
-                    accuracy,
-                    feed_dict={
-                        net.data: vdata,
-                        net.label: vlabel,
-                        net.keep_prob: 1.,
-                        net.is_training: False
-                    }
-                )
-                print('Epoch: ', epoch, 'Train Loss: ', np.mean(epoch_loss), 'Validation Accuracy: ', val_acc)
+                ebs = 100
+                num_ebatch = n_esample // ebs + 1
+                cnt = 0
+                for estep in range(num_ebatch):
+                    # 每个epoch验证集的acc
+                    if estep == num_ebatch - 1:
+                        ebs = n_esample % ebs
+                    vdata, vlabel = sess.run([vx, vy], feed_dict={hp.ebatch_size: ebs})
+                    num = sess.run(
+                        num_correct_pred,
+                        feed_dict={
+                            net.data: vdata,
+                            net.label: vlabel,
+                            net.keep_prob: 1.,
+                            net.is_training: False
+                        }
+                    )
+                    cnt += num
+                print('Epoch: ', epoch, 'Train Loss: ', np.mean(epoch_loss), 'Validation Accuracy: ', cnt / n_esample)
         except Exception as e:
             coord.request_stop(e)
         finally:

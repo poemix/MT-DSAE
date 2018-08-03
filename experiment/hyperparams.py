@@ -7,21 +7,23 @@
 # @Software : PyCharm
 
 
+import tensorflow as tf
+
+
 class HyperParams:
     """
     HyperParameters
     """
     # data
-    file_path = 'E:/WiFi_Positioning/data/processed/{}.csv'
+    file_path = 'E:/WiFiPositioning/data/processed/{}.csv'
 
-    gbm_path = 'E:/WiFi_Positioning/models/GBDT/{}.model'
-    NN_model_path = 'E:/WiFi_Positioning/models/NN/{}.ckpt'
+    gbm_path = 'E:/WiFiPositioning/models/GBDT/{}.model'
+    NN_model_path = 'E:/WiFiPositioning/models/NN/{}.ckpt'
 
     # training
-    batch_size = 32
-    tbatch_size = 15
-    vbatch_size = 32
-    lr = 0.00001
+    tbatch_size = 16  # for train
+    ebatch_size = tf.placeholder(tf.int32)  # for eval
+    learning_rate = 0.00001
     logdir = 'logdir'
 
     # network param
@@ -39,3 +41,6 @@ class HyperParams:
 
     activation = 'elu'
     seed = 2018
+
+    # data param
+    fill_na = -105

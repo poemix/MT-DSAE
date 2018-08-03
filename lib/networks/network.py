@@ -43,31 +43,35 @@ class Network(object):
         self.setup()
 
     def setup(self):
+        # construct graph here.
         raise NotImplementedError('Must be sub-classed.')
 
     def load(self, data_path, sess, saver):
+        # load model params here.
         raise NotImplementedError('Must be sub-classed.')
 
     def feed(self, *args):
         assert len(args) != 0
         self.inputs = []
-        for layer in args:
-            if isinstance(layer, str):
+        for layer_name in args:
+            if isinstance(layer_name, str):
                 try:
-                    layer = self.layers[layer]
+                    layer = self.layers[layer_name]
+                    self.inputs.append(layer)
                     print(layer)
                 except KeyError:
                     print(self.layers.keys())
-                    raise KeyError('Unknown layer name fed: %s' % layer)
-            self.inputs.append(layer)
+                    raise KeyError('Unknown layer name fed: %s' % layer_name)
+            else:
+                raise KeyError('Only str')
         return self
 
-    def get_output(self, layer):
+    def get_output(self, layer_name):
         try:
-            layer = self.layers[layer]
+            layer = self.layers[layer_name]
         except KeyError:
             print(self.layers.keys())
-            raise KeyError('Unknown layer name fed: %s' % layer)
+            raise KeyError('Unknown layer name fed: %s' % layer_name)
         return layer
 
     def get_activation_func(self, activation='relu'):
@@ -134,19 +138,25 @@ class Network(object):
         return tf.nn.softmax(input, name=name)
 
     def fc(self, input, num_out, name, biased=True, activation='relu',
-           weight_initializer=tf.contrib.layers.xavier_initializer(), bias_initializer=tf.zeros_initializer(),
+           weight_initializer=tf.contrib.layers.xavier_initializer(),
+           bias_initializer=tf.zeros_initializer(),
+           weight_regularizer=None,
            trainable=True, reuse=None):
         act_flag, act_func = self.get_activation_func(activation=activation)
 
         with tf.variable_scope(name, reuse=reuse):
             input_shape = input.get_shape()
             if 5 > input_shape.ndims > 1:
+                # ndims = 4 [N, H, W, C] IMAGE
+                # ndims = 2 [N, N_FEATURE] STRUCTURED DATA
+                # ndims = 3 [N, LENGTH, SIZE] NLP
                 dim = int(input_shape[-1])
                 feed_in = tf.reshape(input, [-1, dim])
             else:
                 raise ValueError('nonsupport dim {}.'.format(input_shape.ndims))
 
-            weight = self.make_var('weight', [dim, num_out], initializer=weight_initializer, trainable=trainable)
+            weight = self.make_var('weight', [dim, num_out], initializer=weight_initializer,
+                                   regularizer=weight_regularizer, trainable=trainable)
 
             output = tf.matmul(feed_in, weight)
             output = tf.reshape(output, tf.concat([tf.shape(input)[:-1], [num_out]], 0))
